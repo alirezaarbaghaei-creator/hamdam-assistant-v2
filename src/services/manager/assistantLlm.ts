@@ -7,8 +7,8 @@
  *   • runs the tools (schedule, conflicts, free time, occasions, writes),
  *   • returns structured cards so the model can never invent data.
  *
- * When the server is unreachable the caller falls back to the offline
- * rule-based parser (managerAi.ts) so the assistant still works offline.
+ * When the server is unreachable the caller shows a connection error
+ * instead of an answer (no offline assistant).
  */
 import { apiCall } from '@/lib/api';
 import type { Task, CalendarEvent, Holiday, UserPreferences } from '@/types/manager';

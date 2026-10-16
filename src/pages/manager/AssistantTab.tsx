@@ -4,7 +4,6 @@ import { useManagerStore } from '@/store/managerStore';
 import { requestAssistant, buildCalendar, type ChatTurn } from '@/services/manager/assistantLlm';
 import { applyAssistantAction } from '@/services/manager/assistantActions';
 import { AssistantBlockCard } from '@/components/manager/AssistantBlocks';
-import { managerAi } from '@/services/manager/managerAi';
 import { occasionsForDate } from '@/services/manager/occasionsService';
 import type { AssistantAction, AssistantBlock } from '@/types/assistant';
 import type { Holiday } from '@/types/manager';
@@ -94,66 +93,14 @@ export function AssistantTab() {
     );
   }, []);
 
-  /** Offline fallback: the local rule-based parser still answers basic requests. */
+  /** AI unreachable → a single clear connection message; no offline answers. */
   const offlineAnswer = useCallback(
-    (text: string): Omit<ChatMessage, 'id'> => {
-      try {
-        const result = managerAi.parseUserIntent(text);
-        const intent = result.intent;
-        if (!result.needsConfirmation) {
-          switch (intent.action) {
-            case 'show_today':
-            case 'show_day': {
-              const iso = getTodayISO();
-              const dayTasks = tasks.filter((t) => t.dueDate === iso && t.status === 'pending');
-              const dayEvents = events.filter((e) => e.date === iso);
-              const lines = [
-                ...dayEvents.map((e) => `• رویداد: ${e.title} — ${toFaDigits(e.startTime)}`),
-                ...dayTasks.map(
-                  (t) => `• کار: ${t.title}${t.dueTime ? ` — ${toFaDigits(t.dueTime)}` : ''}`,
-                ),
-              ];
-              return {
-                role: 'assistant',
-                offline: true,
-                content:
-                  lines.length > 0
-                    ? `برنامه امروز:\n${lines.join('\n')}`
-                    : 'امروز برنامهای ثبت نشده.',
-              };
-            }
-            case 'summarize_week': {
-              const start = getTodayISO();
-              const weekTasks = tasks.filter((t) => t.dueDate >= start);
-              return {
-                role: 'assistant',
-                offline: true,
-                content: managerAi.generateWeeklyInsight(
-                  weekTasks.filter((t) => t.status === 'completed').length,
-                  weekTasks.filter((t) => t.status === 'pending').length,
-                ),
-              };
-            }
-            default:
-              break;
-          }
-        }
-        return {
-          role: 'assistant',
-          offline: true,
-          content:
-            result.confirmationMessage ??
-            'برای ثبت و پاسخهای دقیق به اینترنت نیاز دارم. میتوانی از تب تقویم یا کارها هم استفاده کنی.',
-        };
-      } catch {
-        return {
-          role: 'assistant',
-          offline: true,
-          content: 'در حالت آفلاین نمیتوانم این درخواست را پردازش کنم.',
-        };
-      }
-    },
-    [tasks, events],
+    (): Omit<ChatMessage, 'id'> => ({
+      role: 'assistant',
+      offline: true,
+      content: 'اتصال به هوش مصنوعی برقرار نیست. لطفاً اتصال اینترنت خود را بررسی کنید.',
+    }),
+    [],
   );
 
   const submit = useCallback(
@@ -173,7 +120,7 @@ export function AssistantTab() {
       setThinking(false);
 
       if (!res) {
-        push(offlineAnswer(clean));
+        push(offlineAnswer());
         return;
       }
 
@@ -227,7 +174,7 @@ export function AssistantTab() {
         const res = await requestAssistant(history, text, calendar);
         setThinking(false);
         if (!res) {
-          push(offlineAnswer(text));
+          push(offlineAnswer());
           return;
         }
         push({
@@ -282,7 +229,7 @@ export function AssistantTab() {
               {m.offline ? (
                 <p className="flex items-center justify-end gap-1 text-[10px] text-slate-400">
                   <WifiOff className="h-3 w-3" />
-                  پاسخ آفلاین
+                  اتصال برقرار نشد
                 </p>
               ) : null}
 
