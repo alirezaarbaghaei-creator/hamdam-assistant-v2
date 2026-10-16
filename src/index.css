@@ -1,0 +1,268 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html {
+    font-family: 'Vazirmatn', ui-sans-serif, system-ui, sans-serif;
+  }
+
+  body {
+    margin: 0;
+    background: #f8fafc;
+    color: #0f172a;
+    font-family: 'Vazirmatn', ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer utilities {
+  .glass {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+  }
+
+  .glass-dark {
+    background: rgba(15, 23, 42, 0.6);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .paper {
+    background: #ffffff;
+    background-image: linear-gradient(
+      to bottom,
+      rgba(248, 250, 252, 0) 0%,
+      rgba(248, 250, 252, 0.3) 100%
+    );
+    box-shadow: 0 4px 24px rgba(15, 23, 42, 0.08), 0 1px 4px rgba(15, 23, 42, 0.06);
+  }
+
+  .focus-ring {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.3);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.5);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.hero-workflow {
+  isolation: isolate;
+}
+
+.hero-workflow::before {
+  content: '';
+  position: absolute;
+  inset: -45% auto auto -12%;
+  width: 360px;
+  height: 220px;
+  border-radius: 999px;
+  background: rgba(45, 212, 191, 0.2);
+  filter: blur(42px);
+  opacity: 0.75;
+  pointer-events: none;
+  animation: kateb-glow 7s ease-in-out infinite alternate;
+}
+
+.hero-workflow::after {
+  content: '۱  گفتن جمله    ←    ۲  تشخیص تاریخ    ←    ۳  ثبت در تقویم';
+  position: absolute;
+  left: 32px;
+  bottom: 24px;
+  z-index: 0;
+  padding: 12px 18px;
+  border: 1px solid rgba(94, 234, 212, 0.2);
+  border-radius: 14px;
+  color: rgba(204, 251, 241, 0.82);
+  background: rgba(15, 23, 42, 0.34);
+  box-shadow: inset 0 0 24px rgba(45, 212, 191, 0.06);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  direction: rtl;
+  animation: kateb-process 4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes kateb-glow {
+  from { transform: translate3d(-18px, 8px, 0) scale(0.92); }
+  to { transform: translate3d(110px, 42px, 0) scale(1.14); }
+}
+
+@keyframes kateb-process {
+  0%, 100% { opacity: 0.58; transform: translateY(3px); }
+  50% { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 640px) {
+  .hero-workflow::after {
+    left: 20px;
+    right: 20px;
+    bottom: 18px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-workflow::before,
+  .hero-workflow::after {
+    animation: none;
+  }
+}
+
+/* ── Rich letter content (viewer + editor) ─────────────────────────── */
+
+.kateb-letter-body p,
+.kateb-editor-content p {
+  margin: 0 0 0.6em;
+}
+
+.kateb-letter-body p:last-child,
+.kateb-editor-content p:last-child {
+  margin-bottom: 0;
+}
+
+.kateb-letter-body h1,
+.kateb-editor-content h1 {
+  font-size: 1.5em;
+  font-weight: 700;
+  margin: 0.7em 0 0.4em;
+  color: #0f172a;
+}
+
+.kateb-letter-body h2,
+.kateb-editor-content h2 {
+  font-size: 1.3em;
+  font-weight: 700;
+  margin: 0.6em 0 0.35em;
+  color: #0f172a;
+}
+
+.kateb-letter-body h3,
+.kateb-editor-content h3 {
+  font-size: 1.15em;
+  font-weight: 700;
+  margin: 0.5em 0 0.3em;
+  color: #0f172a;
+}
+
+.kateb-letter-body ul,
+.kateb-editor-content ul {
+  list-style: disc;
+  margin: 0.5em 0;
+  padding-right: 1.5em;
+  padding-left: 0;
+}
+
+.kateb-letter-body ol,
+.kateb-editor-content ol {
+  list-style: decimal;
+  margin: 0.5em 0;
+  padding-right: 1.6em;
+  padding-left: 0;
+}
+
+.kateb-letter-body li,
+.kateb-editor-content li {
+  margin: 0.2em 0;
+}
+
+.kateb-letter-body blockquote,
+.kateb-editor-content blockquote {
+  margin: 0.6em 0;
+  padding-right: 1em;
+  border-right: 3px solid #c7d2fe;
+  color: #475569;
+}
+
+.kateb-letter-body hr,
+.kateb-editor-content hr {
+  border: none;
+  border-top: 1px solid #e2e8f0;
+  margin: 1em 0;
+}
+
+.kateb-letter-body a,
+.kateb-editor-content a {
+  color: #4f46e5;
+  text-decoration: underline;
+}
+
+/* Editor surface */
+.kateb-editor-content {
+  outline: none;
+  min-height: 55vh;
+}
+
+.kateb-editor-content p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: right;
+  height: 0;
+  pointer-events: none;
+  color: #94a3b8;
+}
+
+/* ── Mobile toolbar fixes ─────────────────────────────────────────── */
+
+/* Prevents iOS Safari's auto-zoom when focusing toolbar selects. */
+@media (max-width: 640px) {
+  .kateb-toolbar select {
+    font-size: 16px;
+  }
+}
+
+/* Smooth, contained scrolling in fullscreen (focus) mode. */
+.kateb-editor-scroll {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Fullscreen mode: fill the viewport below the toolbar. dvh keeps the
+   editor visible above mobile browser chrome; vh is the fallback.
+
+   The toolbar header in fullscreen is now ~3.5rem and the tool rows wrap, so the
+   old -10rem reserve pushed the content area past the bottom of the screen.
+   min-height:100% inside the flex-1 scroll container is what actually fills the
+   remaining space without overflowing, whichever height the header takes. */
+.kateb-editor-full .kateb-editor-content {
+  min-height: 100%;
+}
+
+/* Fullscreen containers must never exceed the viewport, even when the soft
+   keyboard opens and the WebView reports a smaller visual viewport. */
+.kateb-editor-full {
+  max-height: 100dvh;
+}

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">همدم</string>
+    <string name="title_activity_main">همدم</string>
+    <string name="package_name">com.kateb.app</string>
+    <string name="custom_url_scheme">com.kateb.app</string>
+</resources>

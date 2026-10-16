@@ -1,0 +1,15 @@
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # SPA fallback: send non-file, non-directory requests to index.html
+  # This ensures /payment/callback and /payment/result routes work
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^ index.html [L]
+</IfModule>
+
+# Fallback for hosts without mod_rewrite: try index.html directly
+<IfModule !mod_rewrite.c>
+  ErrorDocument 404 /index.html
+</IfModule>

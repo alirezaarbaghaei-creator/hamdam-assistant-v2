@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Android App Link: https://app.kateb.site/payment/result -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="app.kateb.site" android:pathPrefix="/payment/result" />
+            </intent-filter>
+
+            <!-- Android App Link: https://app.kateb.site/payment/callback -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="app.kateb.site" android:pathPrefix="/payment/callback" />
+            </intent-filter>
+
+            <!-- Custom URL scheme fallback: kateb://payment/result -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="kateb" android:host="payment" android:pathPrefix="/result" />
+            </intent-filter>
+
+            <!-- Custom URL scheme fallback: kateb://payment/callback -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="kateb" android:host="payment" android:pathPrefix="/callback" />
+            </intent-filter>
+
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"></meta-data>
+        </provider>
+        <!-- OTP autofill: reads the code out of the SMS notification.
+
+             BIND_NOTIFICATION_LISTENER_SERVICE is what tells the system this is a
+             notification listener, and that permission is held by the OS rather
+             than by this app, so requiring it here binds nobody but the system.
+             exported="false" on top of that is belt-and-braces: only the system
+             can start it, never another app. -->
+        <service
+            android:name=".plugins.OtpNotificationListener"
+            android:exported="false"
+            android:label="تشخیص خودکار کد تأیید"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+    </application>
+
+    <!-- Permissions -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- FIX (pay): CafeBazaar in-app billing REQUIRES this permission. Without it the
+         system refuses to bind our process to Bazaar's billing service, so
+         getBuyIntent/getBuyIntentV2 never succeed and the checkout sits on
+         "در حال اتصال به کافه‌بازار..." with no error. -->
+    <uses-permission android:name="com.farsitel.bazaar.permission.PAY_THROUGH_BAZAAR" />
+    <!-- Push notifications: required on Android 13+ (API 33) to show notifications -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- OTP autofill (OtpNotificationListener) needs NO permission at all.
+         RECEIVE_SMS was REMOVED deliberately. It is a runtime permission, and
+         its dialog raced the incoming message: on device the SMS was delivered
+         while the user was still reading the dialog, so the receiver registered
+         too late and the code was discarded with no error anywhere. It is also a
+         sensitive permission that Cafe Bazaar asks about.
+
+         Instead the OTP is read out of the SMS NOTIFICATION, via
+         OtpNotificationListener below. Notification access is a one-time Settings
+         toggle the user grants, not a manifest permission, so the APK asks for
+         nothing at install time. SMS Retriever / User Consent stay ruled out:
+         both need Google Play Services, which many of these devices lack, and
+         Retriever additionally needs an 11-char app hash that this app's
+         operator-approved *pattern* SMS (php-api send_sms()) cannot carry.
+
+         The service is READ-ONLY: it never cancels a notification, so the SMS
+         still reaches the messaging app and displays exactly as before. -->
+
+    <!-- FIX (pdf): legacy external storage, LEGACY DEVICES ONLY.
+         maxSdkVersion="28" is load-bearing: this permission is merged and
+         requested on API 28 and below (where MediaStore.Downloads does not
+         exist and a plain file write is the only option), and is completely
+         ignored on API 29+, where scoped storage makes it a no-op and where
+         DownloadsPlugin uses a permission-free MediaStore insert instead.
+         It therefore never appears as a broad-storage permission on the
+         devices users actually run, and never needs to be justified. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
+    <!-- Android 11+ package visibility: allow querying Cafe Bazaar package -->
+    <queries>
+        <package android:name="com.farsitel.bazaar" />
+        <intent>
+            <action android:name="ir.cafebazaar.pardakht.InAppBillingService.BIND" />
+        </intent>
+        <!-- FIX (pdf): DownloadsPlugin.openFile() resolves ACTION_VIEW for
+             application/pdf before launching it, and on API 30+ that query is
+             filtered by package visibility. Without this entry the resolve comes
+             back empty on a device that really does have a viewer, and the export
+             would wrongly report "no_viewer" instead of opening the PDF. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="application/pdf" />
+        </intent>
+    </queries>
+</manifest>

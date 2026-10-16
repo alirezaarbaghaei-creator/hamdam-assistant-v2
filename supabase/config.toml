@@ -1,0 +1,5 @@
+[functions.kateb-api]
+verify_jwt = false
+
+[functions.ai-proxy]
+verify_jwt = false

@@ -1,0 +1,200 @@
+name: Build Kateb Android APK
+
+on:
+  workflow_dispatch:
+
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    name: Build Kateb Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Create .env from GitHub Secrets
+        run: |
+          cat > .env <<'EOF'
+          VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY=${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_ZARINPAL_CALLBACK_URL=${{ secrets.VITE_ZARINPAL_CALLBACK_URL }}
+          EOF
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web application
+        run: npm run build
+
+      - name: Verify dist output
+        run: |
+          test -f dist/index.html
+          test -n "$(ls dist/assets/*.js 2>/dev/null)" && echo "JS assets OK"
+          test -n "$(ls dist/assets/*.css 2>/dev/null)" && echo "CSS assets OK"
+          grep -q 'src="/assets/' dist/index.html && echo "Absolute paths OK"
+
+      - name: Verify CafeBazaar billing sources
+        run: |
+          test -f android/app/src/main/aidl/com/android/vending/billing/IInAppBillingService.aidl
+          test -f android/app/src/main/java/com/kateb/app/plugins/CafeBazaarBillingPlugin.java
+          echo "CafeBazaar AIDL and native plugin sources are present"
+
+      # The silent Download-folder write lives in this native plugin. If it is
+      # ever dropped from the source tree, the PDF export silently degrades to
+      # the share sheet and the release would ship that regression.
+      - name: Verify Downloads plugin sources and registration
+        run: |
+          test -f android/app/src/main/java/com/kateb/app/plugins/DownloadsPlugin.java
+          grep -q 'MediaStore.Downloads' android/app/src/main/java/com/kateb/app/plugins/DownloadsPlugin.java
+          grep -q 'registerPlugin(DownloadsPlugin.class)' android/app/src/main/java/com/kateb/app/MainActivity.java
+          echo "Downloads plugin present, uses MediaStore, and is registered"
+      - name: Sync Capacitor Android
+        run: npx cap sync android
+
+      - name: Verify CafeBazaar billing sources after Capacitor sync
+        run: |
+          test -f android/app/src/main/aidl/com/android/vending/billing/IInAppBillingService.aidl
+          test -f android/app/src/main/java/com/kateb/app/plugins/CafeBazaarBillingPlugin.java
+          echo "CafeBazaar billing sources survived Capacitor sync"
+
+      - name: Verify web assets in Android
+        run: |
+          test -f android/app/src/main/assets/public/index.html
+          test -n "$(ls android/app/src/main/assets/public/assets/*.js 2>/dev/null)" && echo "Android JS OK"
+
+      - name: Validate Android resource names
+        run: |
+          invalid=$(find android/app/src/main/res -type f -printf '%f\n' | awk '$0 !~ /^[a-z0-9_]+\.[a-z0-9]+$/ {print}')
+          if [ -n "$invalid" ]; then
+            echo "::error::Invalid Android resource filenames detected:"
+            printf '%s\n' "$invalid"
+            exit 1
+          fi
+          echo "Android resource filenames are valid"
+
+      - name: Restore keystore from secret
+        env:
+          KATEB_KEYSTORE_BASE64: ${{ secrets.KATEB_KEYSTORE_BASE64 }}
+          KATEB_KEYSTORE_PASSWORD: ${{ secrets.KATEB_KEYSTORE_PASSWORD }}
+          KATEB_KEY_PASSWORD: ${{ secrets.KATEB_KEY_PASSWORD }}
+          KATEB_KEY_ALIAS: ${{ secrets.KATEB_KEY_ALIAS }}
+        run: |
+          if [ -z "$KATEB_KEYSTORE_BASE64" ]; then
+            echo "::error::Secret KATEB_KEYSTORE_BASE64 is not set. The release APK cannot be signed without it."
+            exit 1
+          fi
+
+          mkdir -p android/app
+          echo "$KATEB_KEYSTORE_BASE64" | base64 -d > android/app/kateb.keystore
+
+          if [ ! -s android/app/kateb.keystore ]; then
+            echo "::error::Failed to decode keystore — file is empty"
+            exit 1
+          fi
+
+          echo "Keystore restored ($(wc -c < android/app/kateb.keystore) bytes)"
+
+          KS_PASS="${KATEB_KEYSTORE_PASSWORD:-kateb123456}"
+          KEY_PASS="${KATEB_KEY_PASSWORD:-kateb123456}"
+          KEY_ALIAS="${KATEB_KEY_ALIAS:-kateb}"
+
+          if keytool -list -keystore android/app/kateb.keystore -storepass "$KS_PASS" -alias "$KEY_ALIAS" >/dev/null 2>&1; then
+            echo "Keystore verified — alias '$KEY_ALIAS' found"
+          else
+            echo "::error::Keystore verification failed. Check KATEB_KEYSTORE_PASSWORD, KATEB_KEY_PASSWORD, and KATEB_KEY_ALIAS secrets."
+            exit 1
+          fi
+
+          cat > android/keystore.properties <<EOF
+          storePassword=$KS_PASS
+          keyPassword=$KEY_PASS
+          keyAlias=$KEY_ALIAS
+          storeFile=app/kateb.keystore
+          EOF
+
+          echo "keystore.properties created"
+
+      - name: Restore google-services.json from secret
+        env:
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        run: |
+          if [ -z "$GOOGLE_SERVICES_JSON_BASE64" ]; then
+            echo "::error::Secret GOOGLE_SERVICES_JSON_BASE64 is not set. FCM push notifications will not work without google-services.json."
+            exit 1
+          fi
+
+          mkdir -p android/app
+          echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 -d > android/app/google-services.json
+
+          if [ ! -s android/app/google-services.json ]; then
+            echo "::error::Failed to decode google-services.json — file is empty"
+            exit 1
+          fi
+
+          # Validate it's valid JSON and has the correct package name
+          PACKAGE_NAME=$(jq -r '.client[0].client_info.android_client_info.package_name' android/app/google-services.json)
+          if [ "$PACKAGE_NAME" != "com.kateb.app" ]; then
+            echo "::error::Package name mismatch in google-services.json: expected 'com.kateb.app', got '$PACKAGE_NAME'"
+            exit 1
+          fi
+
+          echo "google-services.json restored and validated (package: $PACKAGE_NAME)"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x android/gradlew
+
+      - name: Build Release APK
+        working-directory: android
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: Verify APK exists
+        run: |
+          test -f android/app/build/outputs/apk/release/app-release.apk
+          ls -lh android/app/build/outputs/apk/release/app-release.apk
+
+      - name: Verify APK is signed
+        run: |
+          APK_PATH="android/app/build/outputs/apk/release/app-release.apk"
+          if command -v apksigner &>/dev/null; then
+            apksigner verify --print-certs "$APK_PATH" && echo "APK signature verified"
+          elif [ -n "$ANDROID_HOME" ] && [ -f "$ANDROID_HOME/build-tools/latest/apksigner" ]; then
+            "$ANDROID_HOME/build-tools/latest/apksigner" verify --print-certs "$APK_PATH" && echo "APK signature verified"
+          else
+            echo "apksigner not found — skipping signature verification"
+          fi
+
+      - name: Rename APK
+        run: |
+          mkdir -p release
+          cp android/app/build/outputs/apk/release/app-release.apk release/Kateb-release.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kateb-Android-Release
+          path: release/Kateb-release.apk
+          retention-days: 30
