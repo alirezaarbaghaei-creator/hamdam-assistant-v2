@@ -1,219 +1,208 @@
-import { useEffect, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
-import { App as CapacitorApp } from '@capacitor/app';
-import { Sidebar, BottomNav } from '@/components/Navigation';
-import { MobileHeader } from '@/components/MobileHeader';
-import { Dashboard } from '@/pages/Dashboard';
-import { AuthPage } from '@/pages/AuthPage';
-import { AdminPage } from '@/pages/AdminPage';
-import { AccountPage } from '@/pages/AccountPage';
-import { PricingPage } from '@/pages/PricingPage';
-import { ManagerPage } from '@/pages/ManagerPage';
-import { CalendarTab } from '@/pages/manager/CalendarTab';
-import { TasksTab } from '@/pages/manager/TasksTab';
-import { AssistantTab } from '@/pages/manager/AssistantTab';
-import { MoreTab } from '@/pages/manager/MoreTab';
-import { PaymentCallback } from '@/pages/PaymentCallback';
-import { PaymentResult } from '@/pages/PaymentResult';
-import { OfflineBanner } from '@/components/OfflineBanner';
-import { UpgradeModal } from '@/components/UpgradeModal';
-import { useAppStore } from '@/store/appStore';
-import { useAuthStore } from '@/store/authStore';
-import { useManagerStore } from '@/store/managerStore';
-import { useDeepLinks, parseDeepLink } from '@/hooks/useDeepLinks';
-import { initPushNotifications, cleanupPushNotifications } from '@/services/pushNotifications';
-import { IntroTour, INTRO_SEEN_KEY } from '@/components/IntroTour';
-import { getItem as getStoredItem, setItem as setStoredItem } from '@/lib/safeStorage';
-import { installDiagnostics } from '@/services/diagnostics';
+import { useEffect, useState } from "react";
+import { supabase } from "./eventsApi";
+import type { EventItem } from "./types";
+import CalendarView from "./components/CalendarView";
+import EventModal from "./components/EventModal";
+import AssistantPanel from "./components/AssistantPanel";
+import EventPanel from "./components/EventPanel";
+import { todayIso } from "./jalali";
 
-// Install the global error capture at module load, before React mounts, so early
-// failures are recorded too. Safe to call repeatedly.
-installDiagnostics();
+export default function App() {
+  const [events, setEvents] = useState<EventItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string>(todayIso());
+  const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
 
-function AppShell() {
-  const currentPage = useAppStore((s) => s.currentPage);
-  const setPage = useAppStore((s) => s.setPage);
-  const session = useAuthStore((s) => s.session);
-  const loading = useAuthStore((s) => s.loading);
-  const restoreSession = useAuthStore((s) => s.restoreSession);
-  const refreshManager = useManagerStore((s) => s.refresh);
-  const managerLoaded = useManagerStore((s) => s.loaded);
+  async function load() {
+    try {
+      setError(null);
+      const data = await loadEvents();
+      setEvents(data);
+    } catch {
+      setError("خطا در بارگذاری رویدادها. اتصال اینترنت را بررسی کنید.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
-  // Track whether we're showing a standalone payment page (not part of the SPA)
-  const [paymentView, setPaymentView] = useState<'callback' | 'result' | null>(() => {
-    const path = window.location.pathname;
-    if (path === '/payment/callback') return 'callback';
-    if (path === '/payment/result') return 'result';
-    return null;
-  });
-
-  // First-run onboarding: shown once before the login page, then remembered
-  // in safeStorage (memory fallback on WebViews where localStorage is blocked).
-  const [introSeen, setIntroSeen] = useState(() => getStoredItem(INTRO_SEEN_KEY) === '1');
-
-  const handleIntroDone = () => {
-    setStoredItem(INTRO_SEEN_KEY, '1');
-    setIntroSeen(true);
-  };
+  async function loadEvents() {
+    const { data, error } = await supabase
+      .from("events")
+      .select("*")
+      .order("event_date", { ascending: true })
+      .order("start_time", { ascending: true });
+    if (error) throw error;
+    return (data ?? []) as EventItem[];
+  }
 
   useEffect(() => {
-    restoreSession();
-  }, [restoreSession]);
-
-  // Initialize FCM push notifications on native (Android) builds.
-  useEffect(() => {
-    initPushNotifications().catch((err) => {
-      console.error('[Push] Init failed', err);
-    });
-    return () => {
-      cleanupPushNotifications().catch(() => {});
-    };
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load the manager (calendar + assistant) data when the user signs in
-  useEffect(() => {
-    if (session && !managerLoaded) {
-      void refreshManager();
-    }
-  }, [session, managerLoaded, refreshManager]);
-
-  // Handle deep links from Capacitor (Android)
-  useDeepLinks((url) => {
-    const parsed = parseDeepLink(url);
-    if (!parsed) return;
-    let { pathname, search } = parsed;
-
-    // Normalize kateb://payment/callback → /payment/callback
-    if (pathname === '/callback') pathname = '/payment/callback';
-    if (pathname === '/result') pathname = '/payment/result';
-
-    if (pathname === '/payment/callback') {
-      const queryString = search.toString();
-      const newUrl = queryString ? `/payment/callback?${queryString}` : '/payment/callback';
-      window.history.replaceState({}, '', newUrl);
-      setPaymentView('callback');
-    } else if (pathname === '/payment/result') {
-      const orderId = search.get('order_id');
-      const newUrl = orderId
-        ? `/payment/result?order_id=${orderId}`
-        : '/payment/result';
-      window.history.replaceState({}, '', newUrl);
-      setPaymentView('result');
-    }
-  });
-
-  // Handle Android back button
-  useEffect(() => {
-    let listener: { remove: () => Promise<void> } | null = null;
-    try {
-      CapacitorApp.addListener('backButton', () => {
-        // If we're on a sub-page, go back to the home dashboard
-        if (currentPage !== 'dashboard') {
-          setPage('dashboard');
-        } else {
-          // On dashboard, exit the app
-          CapacitorApp.exitApp().catch((error: unknown) => {
-            console.error('[Hamdam] app exit failed', error);
-          });
-        }
-      })
-        .then((l) => { listener = l; })
-        .catch((error: unknown) => {
-          console.error('[Hamdam] back-button listener unavailable', error);
-        });
-    } catch (error) {
-      console.error('[Hamdam] back-button initialization failed', error);
-    }
-
-    return () => {
-      if (listener) listener.remove().catch(() => {});
-    };
-  }, [currentPage, setPage]);
-
-  // Payment callback route: standalone page, no auth required
-  if (paymentView === 'callback') {
-    return <PaymentCallback onDone={(oid) => {
-      const newUrl = oid ? `/payment/result?order_id=${oid}` : '/payment/result';
-      window.history.replaceState({}, '', newUrl);
-      setPaymentView('result');
-    }} />;
+  function handleEdit(ev: EventItem) {
+    setEditingEvent(ev);
+    setModalOpen(true);
   }
 
-  // Payment result route: standalone page, no auth required
-  if (paymentView === 'result') {
-    return <PaymentResult onDone={() => {
-      window.history.replaceState({}, '', '/');
-      setPaymentView(null);
-    }} />;
+  function handleNew(dateIso?: string) {
+    setEditingEvent(null);
+    if (dateIso) setSelectedDate(dateIso);
+    setModalOpen(true);
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-surface">
-        <div className="h-8 w-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
-      </div>
+  async function handleDelete(id: string) {
+    const { error } = await supabase.from("events").delete().eq("id", id);
+    if (error) {
+      setError("حذف رویداد ناموفق بود.");
+      return;
+    }
+    setEvents((prev) => prev.filter((e) => e.id !== id));
+    setModalOpen(false);
+  }
+
+  async function handleSave(input: {
+    title: string;
+    event_date: string;
+    start_time: string;
+    end_time: string;
+    notes: string | null;
+  }) {
+    if (editingEvent) {
+      const { error } = await supabase.from("events").update(input).eq("id", editingEvent.id);
+      if (error) {
+        setError("ذخیره تغییرات ناموفق بود.");
+        return false;
+      }
+      setEvents((prev) =>
+        prev
+          .map((e) => (e.id === editingEvent.id ? { ...e, ...input } : e))
+          .sort((a, b) =>
+            a.event_date === b.event_date
+              ? a.start_time.localeCompare(b.start_time)
+              : a.event_date.localeCompare(b.event_date)
+          )
+      );
+    } else {
+      const { data, error } = await supabase.from("events").insert(input).select().single();
+      if (error || !data) {
+        setError("ثبت رویداد ناموفق بود.");
+        return false;
+      }
+      setEvents((prev) =>
+        [...prev, data as EventItem].sort((a, b) =>
+          a.event_date === b.event_date
+            ? a.start_time.localeCompare(b.start_time)
+            : a.event_date.localeCompare(b.event_date)
+        )
+      );
+      setSelectedDate(input.event_date);
+    }
+    setModalOpen(false);
+    return true;
+  }
+
+  async function handleAssistantSave(input: {
+    title: string;
+    event_date: string;
+    start_time: string;
+    end_time: string;
+    notes?: string | null;
+  }): Promise<boolean> {
+    const { data, error } = await supabase
+      .from("events")
+      .insert({ ...input, notes: input.notes ?? null })
+      .select()
+      .single();
+    if (error || !data) return false;
+    setEvents((prev) =>
+      [...prev, data as EventItem].sort((a, b) =>
+        a.event_date === b.event_date
+          ? a.start_time.localeCompare(b.start_time)
+          : a.event_date.localeCompare(b.event_date)
+      )
     );
+    setSelectedDate(input.event_date);
+    return true;
   }
 
-  if (!session) {
-    // First launch: multi-step intro first, login page only after it's done
-    // (or skipped). The seen-flag makes sure it never shows a second time.
-    if (!introSeen) {
-      return <IntroTour onDone={handleIntroDone} />;
-    }
-    return <AuthPage />;
-  }
-
-  const pages: Record<string, React.ReactNode> = {
-    dashboard: <Dashboard />,
-    manager: <ManagerPage />,
-    calendar: <CalendarTab />,
-    tasks: <TasksTab />,
-    assistant: <AssistantTab />,
-    more: <MoreTab />,
-    admin: <AdminPage />,
-    account: <AccountPage />,
-    pricing: <PricingPage />,
-  };
+  const dayEvents = events
+    .filter((e) => e.event_date === selectedDate)
+    .sort((a, b) => a.start_time.localeCompare(b.start_time));
 
   return (
-    <div className="min-h-screen bg-surface">
-      <OfflineBanner />
-      {/* Ambient background blobs */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 h-96 w-96 rounded-full bg-indigo-200/30 blur-3xl" />
-        <div className="absolute top-1/2 -left-40 h-96 w-96 rounded-full bg-cyan-200/20 blur-3xl" />
-        <div className="absolute bottom-0 right-1/3 h-80 w-80 rounded-full bg-indigo-100/40 blur-3xl" />
-      </div>
-
-      <Sidebar />
-      <MobileHeader />
-
-      <main className="relative lg:mr-64">
-        <div className="mx-auto max-w-3xl px-4 sm:px-6 py-6 pb-28 lg:pb-10">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={currentPage}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+    <div className="min-h-screen bg-slate-50 text-slate-800" dir="rtl">
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-20">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+          <h1 className="text-lg font-bold text-slate-800">تقویم رویدادها</h1>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setAssistantOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors"
             >
-              {pages[currentPage] ?? <Dashboard />}
-            </motion.div>
-          </AnimatePresence>
+              <span className="text-base">✨</span>
+              ثبت با دستیار هوشمند
+            </button>
+            <button
+              onClick={() => handleNew()}
+              className="px-3 py-2 rounded-lg border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-100 transition-colors"
+            >
+              + رویداد دستی
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {error && (
+        <div className="max-w-6xl mx-auto px-4 pt-3">
+          <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-2 text-sm flex items-center justify-between">
+            <span>{error}</span>
+            <button onClick={() => setError(null)} className="text-red-500 hover:text-red-700">
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      <main className="max-w-6xl mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-5 gap-6">
+        <div className="lg:col-span-3">
+          <CalendarView
+            events={events}
+            selectedDate={selectedDate}
+            onSelectDate={setSelectedDate}
+            onNewEvent={handleNew}
+          />
+        </div>
+        <div className="lg:col-span-2">
+          <EventPanel
+            selectedDate={selectedDate}
+            dayEvents={dayEvents}
+            loading={loading}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+            onNew={() => handleNew()}
+          />
         </div>
       </main>
 
-      <BottomNav />
-      <UpgradeModal />
+      {modalOpen && (
+        <EventModal
+          event={editingEvent}
+          defaultDate={selectedDate}
+          onClose={() => setModalOpen(false)}
+          onSave={handleSave}
+        />
+      )}
+
+      {assistantOpen && (
+        <AssistantPanel
+          onClose={() => setAssistantOpen(false)}
+          onSave={handleAssistantSave}
+        />
+      )}
     </div>
   );
 }
-
-// Kept as a thin wrapper so the root stays a stable mount point.
-function App() {
-  return <AppShell />;
-}
-
-export default App;

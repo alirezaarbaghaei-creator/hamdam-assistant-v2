@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/aiAssistant.ts","./src/eventsApi.ts","./src/jalali.ts","./src/main.tsx","./src/supabaseClient.ts","./src/types.ts","./src/vite-env.d.ts","./src/components/AssistantPanel.tsx","./src/components/CalendarView.tsx","./src/components/EventModal.tsx","./src/components/EventPanel.tsx"],"version":"5.9.3"}
